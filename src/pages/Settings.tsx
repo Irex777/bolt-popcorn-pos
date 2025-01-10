@@ -17,25 +17,25 @@ function Settings() {
   const [newUser, setNewUser] = useState({
     email: '',
     password: '',
-    role: 'cashier'
+    role: 'cashier',
   });
-  
+
   useEffect(() => {
     fetchUsers();
   }, []);
 
   const fetchUsers = async () => {
     try {
-      const { data: users, error } = await supabase
+      const { data, error } = await supabase
         .from('users')
         .select('id, email, role')
         .order('email');
-        
+
       if (error) throw error;
-      setUsers(users || []);
+      setUsers(data || []);
     } catch (error) {
       toast.error('Failed to load users');
-      console.error('Error:', error);
+      console.error('Error fetching users:', error);
     }
   };
 
@@ -53,29 +53,27 @@ function Settings() {
       const { data: authData, error: authError } = await supabase.auth.admin.createUser({
         email: newUser.email,
         password: newUser.password,
-        email_confirm: true
+        email_confirm: true,
       });
 
       if (authError) throw authError;
 
-      // Then add the user role to our users table
-      const { error: dbError } = await supabase
-        .from('users')
-        .insert({
-          id: authData.user.id,
-          email: newUser.email,
-          role: newUser.role
-        });
+      // Then add the user role to the `users` table
+      const { error: dbError } = await supabase.from('users').insert({
+        id: authData.user.id,
+        email: newUser.email,
+        role: newUser.role,
+      });
 
       if (dbError) throw dbError;
 
-      toast.success('User added successfully');
+      toast.success(t('User added successfully'));
       setShowAddUserModal(false);
       setNewUser({ email: '', password: '', role: 'cashier' });
       fetchUsers();
     } catch (error: any) {
       toast.error(error.message || 'Failed to add user');
-      console.error('Error:', error);
+      console.error('Error adding user:', error);
     }
   };
 
@@ -87,19 +85,15 @@ function Settings() {
       const { error: authError } = await supabase.auth.admin.deleteUser(userId);
       if (authError) throw authError;
 
-      // Delete from our users table
-      const { error: dbError } = await supabase
-        .from('users')
-        .delete()
-        .eq('id', userId);
-      
+      // Delete from `users` table
+      const { error: dbError } = await supabase.from('users').delete().eq('id', userId);
       if (dbError) throw dbError;
 
-      toast.success('User deleted successfully');
+      toast.success(t('User deleted successfully'));
       fetchUsers();
     } catch (error: any) {
       toast.error(error.message || 'Failed to delete user');
-      console.error('Error:', error);
+      console.error('Error deleting user:', error);
     }
   };
 
@@ -145,7 +139,6 @@ function Settings() {
               {t('addUser')}
             </button>
           </div>
-          
           <div className="mt-4">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -210,7 +203,9 @@ function Settings() {
                   type="email"
                   required
                   value={newUser.email}
-                  onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                  onChange={(e) =>
+                    setNewUser({ ...newUser, email: e.target.value })
+                  }
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                 />
               </div>
@@ -223,7 +218,9 @@ function Settings() {
                   type="password"
                   required
                   value={newUser.password}
-                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                  onChange={(e) =>
+                    setNewUser({ ...newUser, password: e.target.value })
+                  }
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                 />
               </div>
@@ -234,7 +231,9 @@ function Settings() {
                 </label>
                 <select
                   value={newUser.role}
-                  onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
+                  onChange={(e) =>
+                    setNewUser({ ...newUser, role: e.target.value })
+                  }
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                 >
                   <option value="cashier">{t('cashier')}</option>
