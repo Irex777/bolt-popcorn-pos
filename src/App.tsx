@@ -9,7 +9,7 @@ import Sales from './pages/Sales';
 import Inventory from './pages/Inventory';
 import History from './pages/History';
 import Settings from './pages/Settings';
-import './i18n'; // Make sure to import i18n configuration
+import './i18n';
 
 function App() {
   const { initialize, user, loading } = useAuthStore();
