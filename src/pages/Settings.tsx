@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Globe, UserPlus, Trash2, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
+import { useAuthStore } from '../store/authStore';
 
 interface User {
   id: string;
@@ -12,20 +13,41 @@ interface User {
 
 function Settings() {
   const { t, i18n } = useTranslation();
+  const { user: currentUser } = useAuthStore();
   const [users, setUsers] = useState<User[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [newUser, setNewUser] = useState({
     email: '',
     password: '',
     role: 'cashier',
   });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    checkAdminStatus();
     fetchUsers();
   }, []);
 
+  const checkAdminStatus = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', currentUser?.id)
+        .single();
+
+      if (error) throw error;
+      setIsAdmin(data?.role === 'admin');
+    } catch (error) {
+      console.error('Error checking admin status:', error);
+      setIsAdmin(false);
+    }
+  };
+
   const fetchUsers = async () => {
     try {
+      setLoading(true);
       const { data, error } = await supabase
         .from('users')
         .select('id, email, role')
@@ -33,69 +55,84 @@ function Settings() {
 
       if (error) throw error;
       setUsers(data || []);
-    } catch (error) {
-      toast.error('Failed to load users');
-      console.error('Error fetching users:', error);
+    } catch (error: any) {
+      toast.error('Failed to load users: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAdmin) {
+      toast.error('Only administrators can add users');
+      return;
+    }
+
+    try {
+      // Create auth user
+      const { data: authData, error: signUpError } = await supabase.auth.signUp({
+        email: newUser.email,
+        password: newUser.password,
+      });
+
+      if (signUpError) throw signUpError;
+
+      // Add user role to users table
+      const { error: insertError } = await supabase
+        .from('users')
+        .insert({
+          id: authData.user?.id,
+          email: newUser.email,
+          role: newUser.role,
+        });
+
+      if (insertError) throw insertError;
+
+      toast.success('User added successfully');
+      setShowAddUserModal(false);
+      setNewUser({ email: '', password: '', role: 'cashier' });
+      fetchUsers();
+    } catch (error: any) {
+      toast.error('Failed to add user: ' + error.message);
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    if (!isAdmin) {
+      toast.error('Only administrators can delete users');
+      return;
+    }
+
+    if (!confirm(t('confirmDelete'))) return;
+
+    try {
+      const { error: deleteError } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', userId);
+
+      if (deleteError) throw deleteError;
+
+      toast.success('User deleted successfully');
+      fetchUsers();
+    } catch (error: any) {
+      toast.error('Failed to delete user: ' + error.message);
     }
   };
 
   const handleLanguageChange = (newLanguage: string) => {
     localStorage.setItem('i18nextLng', newLanguage);
-    i18n.changeLanguage(newLanguage).then(() => {
-      window.dispatchEvent(new Event('storage'));
-    });
+    i18n.changeLanguage(newLanguage);
   };
 
-  const handleAddUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      // First create the user in Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-        email: newUser.email,
-        password: newUser.password,
-        email_confirm: true,
-      });
-
-      if (authError) throw authError;
-
-      // Then add the user role to the `users` table
-      const { error: dbError } = await supabase.from('users').insert({
-        id: authData.user.id,
-        email: newUser.email,
-        role: newUser.role,
-      });
-
-      if (dbError) throw dbError;
-
-      toast.success(t('User added successfully'));
-      setShowAddUserModal(false);
-      setNewUser({ email: '', password: '', role: 'cashier' });
-      fetchUsers();
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to add user');
-      console.error('Error adding user:', error);
-    }
-  };
-
-  const handleDeleteUser = async (userId: string) => {
-    if (!confirm(t('confirmDelete'))) return;
-
-    try {
-      // Delete from Supabase Auth
-      const { error: authError } = await supabase.auth.admin.deleteUser(userId);
-      if (authError) throw authError;
-
-      // Delete from `users` table
-      const { error: dbError } = await supabase.from('users').delete().eq('id', userId);
-      if (dbError) throw dbError;
-
-      toast.success(t('User deleted successfully'));
-      fetchUsers();
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to delete user');
-      console.error('Error deleting user:', error);
-    }
-  };
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-full">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -124,60 +161,65 @@ function Settings() {
         </div>
       </div>
 
-      {/* User Management */}
-      <div className="bg-white shadow rounded-lg">
-        <div className="px-4 py-5 sm:p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg leading-6 font-medium text-gray-900">
-              {t('users')}
-            </h3>
-            <button
-              onClick={() => setShowAddUserModal(true)}
-              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              <UserPlus className="w-4 h-4 mr-2" />
-              {t('addUser')}
-            </button>
-          </div>
-          <div className="mt-4">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    {t('email')}
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    {t('userRole')}
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {users.map((user) => (
-                  <tr key={user.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {user.email}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {t(user.role)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={() => handleDeleteUser(user.id)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </button>
-                    </td>
+      {/* User Management - Only show if user is admin */}
+      {isAdmin && (
+        <div className="bg-white shadow rounded-lg">
+          <div className="px-4 py-5 sm:p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg leading-6 font-medium text-gray-900">
+                {t('users')}
+              </h3>
+              <button
+                onClick={() => setShowAddUserModal(true)}
+                className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                <UserPlus className="w-4 h-4 mr-2" />
+                {t('addUser')}
+              </button>
+            </div>
+
+            <div className="mt-4">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      {t('email')}
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      {t('userRole')}
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {users.map((user) => (
+                    <tr key={user.id}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {user.email}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {t(user.role)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        {user.id !== currentUser?.id && (
+                          <button
+                            onClick={() => handleDeleteUser(user.id)}
+                            className="text-red-600 hover:text-red-900"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Add User Modal */}
       {showAddUserModal && (
